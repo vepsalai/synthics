@@ -1172,12 +1172,12 @@ def generate_random_expr(max_depth, rng, tau=4.0):
         p_leaf = 1.0 - np.exp(-depth / tau) # tau=4 creates 8-10 depth trees with good variability, while tau=2 creates more shallow trees
         if depth >= max_depth or (depth > 0 and rng.random() < p_leaf):
             return (_new_var() if rng.random() < 0.5
-                    else _CONST_POOL[int(rng.integers(len(_CONST_POOL)))])
+                    else CONST_POOL[int(rng.integers(len(CONST_POOL)))])
         op = _ALL_OPS[int(rng.integers(len(_ALL_OPS)))]
         try:
             if op == "Add":  return sp.Add(_expand(depth+1), _expand(depth+1))
             if op == "Mul":  return sp.Mul(_expand(depth+1), _expand(depth+1))
-            if op == "Pow":  return sp.Pow(_expand(depth+1), _CONST_POOL[int(rng.integers(len(_CONST_POOL)))])
+            if op == "Pow":  return sp.Pow(_expand(depth+1), CONST_POOL[int(rng.integers(len(CONST_POOL)))])
             if op == "sin":  return sp.sin(_expand(depth+1))
             if op == "cos":  return sp.cos(_expand(depth+1))
             if op == "exp":  return sp.exp(_expand(depth+1))

@@ -36,7 +36,7 @@ def characterise_domain(
 ) -> dict | None:
     """
     Empirically characterise the applicability domain of a sympy expression
-    by probing it with random inputs from U(0,1)^n and labelling each
+    by probing it with random inputs from U(-1,1)^n and labelling each
     sample valid or invalid based on the output.
 
     A sample is invalid if the output is NaN, Inf, or has extreme magnitude
@@ -69,7 +69,7 @@ def characterise_domain(
     if rng is None:
         rng = np.random.default_rng()
 
-    X = rng.uniform(0.0, 1.0, size=(n_probe, n_vars))
+    X = rng.uniform(-1.0, 1.0, size=(n_probe, n_vars))
     y = evaluate_equation(expr, X)
 
     valid = (
@@ -168,7 +168,7 @@ def sample_inputs(
     """
     Generate synthetic inputs for variables.
 
-    Each variable gets a random sub-interval [a, b] ⊂ [0, 1], then is sampled
+    Each variable gets a random sub-interval [a, b] ⊂ [-1, 1], then is sampled
     from either U(a, b) or a truncated N(μ, σ) clipped to (a, b).
 
     Returns
@@ -196,9 +196,9 @@ def sample_inputs(
     for i, dist in enumerate(dist_types):
 
         # Step 1 & 2: Sample sub-range [a, b] jointly uniform over all valid pairs
-        a, b = sorted(rng.uniform(0.0, 1.0, size=2))
+        a, b = sorted(rng.uniform(-1.0, 1.0, size=2))
         while b - a < 0.15:
-            a, b = sorted(rng.uniform(0.0, 1.0, size=2))
+            a, b = sorted(rng.uniform(-1.0, 1.0, size=2))
         sub_ranges.append((a, b))
 
         if dist == "uniform":

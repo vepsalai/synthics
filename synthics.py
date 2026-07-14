@@ -821,6 +821,7 @@ def extract_production_rules(equations: list[dict], verbose: bool = False) -> di
         "root_probs"  : dict     normalized root operator probabilities
         "leaf_counts" : Counter  distribution over leaf types (VAR / CONST)
         "leaf_probs"  : dict     normalized leaf probabilities
+        "var_reuse_prob" : float  P(a variable leaf repeats an already-used variable)
         "n_equations" : int      number of equations successfully processed
         "failed"      : list     filenames that could not be parsed
     """
@@ -851,16 +852,20 @@ def extract_production_rules(equations: list[dict], verbose: bool = False) -> di
     leaf_counts = Counter()
     failed      = []
     n_ok        = 0
+    reuse_num   = 0   # variable appearances that repeat an already-used variable
+    reuse_den   = 0   # variable appearances after the first (reuse opportunities)
 
     for eq in equations:
         if eq["generic"] is None:
             failed.append(eq["filename"])
             continue
         try:
-            _ = extract_features(eq["generic"]) # sanity check that features are extrable, before collecting rules
+            feats = extract_features(eq["generic"]) # also a sanity check that features are extractable
             expr = sp.sympify(eq["generic"])
             root_counts[_node_type(expr)] += 1
             _collect(expr, rules, leaf_counts)
+            reuse_num += max(feats["n_variables"] - feats["n_unique_variables"], 0)
+            reuse_den += max(feats["n_variables"] - 1, 0)
             n_ok += 1
         except Exception:
             failed.append(eq["filename"])
@@ -879,6 +884,8 @@ def extract_production_rules(equations: list[dict], verbose: bool = False) -> di
 
     leaf_total = sum(leaf_counts.values())
     leaf_probs = {t: count / leaf_total for t, count in leaf_counts.items()}
+
+    var_reuse_prob = reuse_num / reuse_den if reuse_den else 0.0
 
     if verbose:
         print(f"\nProcessed {n_ok} equations")
@@ -909,6 +916,7 @@ def extract_production_rules(equations: list[dict], verbose: bool = False) -> di
         "leaf_probs":  leaf_probs,
         "n_equations": n_ok,
         "failed":      failed,
+        "var_reuse_prob": var_reuse_prob,
     }
 
 def extract_production_rules_bayesian(equations: list[dict], alpha: float = 1.0, verbose: bool = False, optimize: bool = False) -> dict:
@@ -945,6 +953,7 @@ def extract_production_rules_bayesian(equations: list[dict], alpha: float = 1.0,
         "root_probs"  : dict     smoothed root operator probabilities
         "leaf_counts" : Counter  raw leaf type counts
         "leaf_probs"  : dict     smoothed leaf type probabilities
+        "var_reuse_prob" : float  P(a variable leaf repeats an already-used variable)
         "n_equations" : int      number of equations successfully processed
         "failed"      : list     filenames that could not be parsed
         "alpha"       : float    the concentration parameter used
@@ -976,16 +985,20 @@ def extract_production_rules_bayesian(equations: list[dict], alpha: float = 1.0,
     leaf_counts = Counter()
     failed      = []
     n_ok        = 0
+    reuse_num   = 0   # variable appearances that repeat an already-used variable
+    reuse_den   = 0   # variable appearances after the first (reuse opportunities)
 
     for eq in equations:
         if eq["generic"] is None:
             failed.append(eq["filename"])
             continue
         try:
-            _ = extract_features(eq["generic"])
+            feats = extract_features(eq["generic"])
             expr = sp.sympify(eq["generic"])
             root_counts[_node_type(expr)] += 1
             _collect(expr, rules, leaf_counts)
+            reuse_num += max(feats["n_variables"] - feats["n_unique_variables"], 0)
+            reuse_den += max(feats["n_variables"] - 1, 0)
             n_ok += 1
         except Exception:
             failed.append(eq["filename"])
@@ -1022,6 +1035,8 @@ def extract_production_rules_bayesian(equations: list[dict], alpha: float = 1.0,
         for t, count in leaf_counts.items()
     }
 
+    var_reuse_prob = reuse_num / reuse_den if reuse_den else 0.0
+
     if verbose:
         print(f"\nProcessed {n_ok} equations  (alpha={alpha})")
         print(f"Unique parent types : {len(rules)}")
@@ -1057,6 +1072,7 @@ def extract_production_rules_bayesian(equations: list[dict], alpha: float = 1.0,
         "n_equations": n_ok,
         "failed":      failed,
         "alpha":       alpha,
+        "var_reuse_prob": var_reuse_prob,
     }
 
 def generate_equation(
@@ -1074,14 +1090,25 @@ def generate_equation(
         rng = np.random.default_rng()
 
     var_counter = [0]
+    vars_made: list = []
+    p_reuse = float(grammar.get("var_reuse_prob", 0.0))
 
     def _new_var():
         var_counter[0] += 1
-        return sp.Symbol("x" + str(var_counter[0]))
+        v = sp.Symbol("x" + str(var_counter[0]))
+        vars_made.append(v)
+        return v
+
+    def _var_leaf():
+        # corpus-calibrated variable reuse: repeat an already-used variable
+        # with probability var_reuse_prob, otherwise mint a fresh one
+        if vars_made and rng.random() < p_reuse:
+            return vars_made[int(rng.integers(len(vars_made)))]
+        return _new_var()
 
     def _sample_leaf():
         if rng.random() < grammar["leaf_probs"].get("VAR", 0.4):
-            return _new_var()
+            return _var_leaf()
         return CONST_POOL[int(rng.integers(len(CONST_POOL)))]
 
     def _sample_rule(op_type):
@@ -1130,7 +1157,7 @@ def generate_equation(
         children = []
         for ct in children_types:
             if ct == "VAR":
-                children.append(_new_var())
+                children.append(_var_leaf())
             elif ct == "CONST":
                 children.append(CONST_POOL[int(rng.integers(len(CONST_POOL)))])
             else:
@@ -1145,6 +1172,7 @@ def generate_equation(
     for _ in range(max_tries):
         try:
             var_counter[0] = 0        # reset so each attempt starts at x1
+            vars_made.clear()
 
             root_op = _sample_root()
             expr    = _expand(root_op, 0)
